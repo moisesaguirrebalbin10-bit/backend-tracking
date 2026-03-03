@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Events\OrderStatusChanged;
+use App\Jobs\CancelExpiredOrderErrorsJob;
+use App\Listeners\LogOrderStatusChange;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +23,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Register event listeners
+        Event::listen(
+            OrderStatusChanged::class,
+            LogOrderStatusChange::class,
+        );
     }
 }
+

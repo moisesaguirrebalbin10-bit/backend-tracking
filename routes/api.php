@@ -19,9 +19,16 @@ Route::prefix('v1')->group(function (): void {
     Route::middleware(['jwt'])->group(function (): void {
         Route::get('/me', static fn () => response()->json(['user' => request()->user()]));
 
-        Route::get('/orders', [OrderController::class, 'index']);
-        Route::post('/orders/sync', [OrderController::class, 'sync']);
-        Route::post('/orders/{order}/status', [OrderController::class, 'updateStatus']);
+        // Orders endpoints
+        Route::prefix('orders')->group(function (): void {
+            Route::get('/', [OrderController::class, 'index']);
+            Route::get('/{order}', [OrderController::class, 'show']);
+            Route::get('/{order}/history', [OrderController::class, 'history']);
+            Route::get('/{order}/logs', [OrderController::class, 'logs']);
+            Route::get('/{order}/available-transitions', [OrderController::class, 'availableTransitions']);
+            Route::post('/sync', [OrderController::class, 'sync']);
+            Route::put('/{order}/status', [OrderController::class, 'updateStatus']);
+        });
 
         Route::post('/users', [UserController::class, 'store']);
     });

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\UserRole;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -23,6 +25,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
         'is_admin',
     ];
 
@@ -47,6 +50,52 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
+            'role' => UserRole::class,
         ];
+    }
+
+    /**
+     * Get all orders associated with this user.
+     */
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    /**
+     * Get all audit logs created by this user.
+     */
+    public function orderLogs(): HasMany
+    {
+        return $this->hasMany(OrderLog::class);
+    }
+
+    /**
+     * Check if user is admin.
+     */
+    public function isAdmin(): bool
+    {
+        return $this->role === UserRole::ADMIN;
+    }
+
+    /**
+     * Check if user has a specific role.
+     */
+    public function hasRole(UserRole $role): bool
+    {
+        return $this->role === $role;
+    }
+
+    /**
+     * Determine if the user can perform an action on the given order status.
+     */
+    public function canUpdateOrderStatus(\App\Enums\OrderStatus $newStatus): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        $allowedStatuses = UserRole::allowedStatesForRole($this->role);
+        return in_array($newStatus, $allowedStatuses);
     }
 }

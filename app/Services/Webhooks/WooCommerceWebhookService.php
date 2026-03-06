@@ -25,11 +25,15 @@ final class WooCommerceWebhookService
             return;
         }
 
+        // traducir estados de WooCommerce a nuestro enum
+        $rawStatus = strtolower((string) ($payload['status'] ?? ''));
+        $status = $this->mapStatus($rawStatus);
+
         /** @var Order $order */
         $order = Order::query()->firstOrCreate(
             ['external_id' => $externalId],
             [
-                'status' => (string) ($payload['status'] ?? 'pending'),
+                'status' => $status,
                 'currency' => (string) ($payload['currency'] ?? 'USD'),
                 'total' => (float) ($payload['total'] ?? 0),
             ],
@@ -37,7 +41,7 @@ final class WooCommerceWebhookService
 
         OrderTimeline::query()->create([
             'order_id' => $order->getKey(),
-            'status' => (string) ($payload['status'] ?? null),
+            'status' => $status,
             'message' => 'Webhook WooCommerce',
             'source' => 'webhook',
             'occurred_at' => Carbon::now('UTC'),
@@ -61,6 +65,19 @@ final class WooCommerceWebhookService
         if (! hash_equals($expected, $header)) {
             throw new RuntimeException('Firma de webhook inválida.');
         }
+    }
+
+    /**
+     * Map WooCommerce status strings into our OrderStatus enum.
+     */
+    private function mapStatus(string $status): \App\Enums\OrderStatus
+    {
+        return match ($status) {
+            'processing' => \App\Enums\OrderStatus::EN_PROCESO,
+            'completed'  => \App\Enums\OrderStatus::ENTREGADO,
+            'cancelled', 'cancel' => \App\Enums\OrderStatus::CANCELADO,
+            default => \App\Enums\OrderStatus::EN_PROCESO,
+        };
     }
 }
 

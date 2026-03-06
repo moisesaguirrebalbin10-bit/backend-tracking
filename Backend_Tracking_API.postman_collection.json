@@ -1,0 +1,339 @@
+{
+  "info": {
+    "name": "Backend Tracking API",
+    "description": "API completa para el sistema de tracking de órdenes",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Autenticar usuario y obtener tokens JWT\n\n**Credenciales de prueba:**\n- Admin: admin@example.com / admin123\n- Vendedor: vendedor@example.com / vendedor123\n- Ventas: ventas@example.com / ventas123\n- Delivery: tester@example.com / password"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', response.access_token);",
+                  "    console.log('Token guardado:', response.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "refresh"]
+            },
+            "description": "Renovar el token de acceso usando el refresh token"
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Management",
+      "item": [
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "me"]
+            },
+            "description": "Obtener información del usuario autenticado"
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nuevo Usuario\",\n  \"email\": \"nuevo@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"empaquetador\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Crear un nuevo usuario\n\n**Roles disponibles:** admin, vendedor_redes, ventas_web, empaquetador, despachador, delivery"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Order Management",
+      "item": [
+        {
+          "name": "List Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders?page=1&per_page=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Listar órdenes con paginación\n\n**Parámetros opcionales:**\n- status: Filtrar por estado\n- user_id: Filtrar por usuario\n- page: Página actual\n- per_page: Elementos por página"
+          }
+        },
+        {
+          "name": "Get Order Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/5",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders", "5"]
+            },
+            "description": "Obtener detalles completos de una orden específica\n\n**ID de prueba:** 5, 6, 7 (órdenes con datos completos)"
+          }
+        },
+        {
+          "name": "Get Order History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/7/history",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders", "7", "history"]
+            },
+            "description": "Obtener el historial completo de una orden (timelines)\n\n**ID de prueba:** 7 (orden con múltiples estados)"
+          }
+        },
+        {
+          "name": "Get Order Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/6/logs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders", "6", "logs"]
+            },
+            "description": "Obtener los logs de auditoría de una orden\n\n**ID de prueba:** 6 (orden con logs de auditoría)"
+          }
+        },
+        {
+          "name": "Get Available Transitions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/5/available-transitions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders", "5", "available-transitions"]
+            },
+            "description": "Obtener las transiciones de estado disponibles para una orden\n\n**ID de prueba:** 5 (orden en estado 'en_proceso')"
+          }
+        },
+        {
+          "name": "Update Order Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"empaquetado\",\n  \"notes\": \"Orden empacada y lista para envío\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/5/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders", "5", "status"]
+            },
+            "description": "Cambiar el estado de una orden\n\n**Estados disponibles:** en_proceso, empaquetado, despachado, en_camino, entregado, error_en_pedido, cancelado\n\n**ID de prueba:** 5 (orden en estado 'en_proceso')"
+          }
+        },
+        {
+          "name": "Sync Order from WooCommerce",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_id\": \"WC-3001\",\n  \"status\": \"en_proceso\",\n  \"metadata\": {\n    \"customer_name\": \"Cliente de Prueba\",\n    \"total\": 99.99,\n    \"items\": [\n      {\n        \"name\": \"Producto de Prueba\",\n        \"quantity\": 1,\n        \"price\": 99.99\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/orders/sync",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "orders", "sync"]
+            },
+            "description": "Sincronizar una orden desde WooCommerce\n\n**Campos requeridos:** external_id, status\n**Campos opcionales:** metadata (JSON con información adicional)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "health"]
+            },
+            "description": "Verificar el estado del servicio API\n\n**Respuesta esperada:** {\"status\": \"ok\"}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "WooCommerce Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-WC-Webhook-Signature",
+                "value": "test_signature"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": 123,\n  \"status\": \"processing\",\n  \"total\": \"99.99\",\n  \"customer_id\": 456,\n  \"billing\": {\n    \"first_name\": \"Juan\",\n    \"last_name\": \"Pérez\",\n    \"email\": \"juan@example.com\"\n  },\n  \"line_items\": [\n    {\n      \"name\": \"Producto de Prueba\",\n      \"quantity\": 1,\n      \"price\": 99.99\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/webhooks/woocommerce",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "webhooks", "woocommerce"]
+            },
+            "description": "Webhook para recibir actualizaciones desde WooCommerce\n\n**Headers requeridos:** X-WC-Webhook-Signature\n**Campos importantes:** id, status, total, billing, line_items"
+          }
+        }
+      ]
+    }
+  ]
+}

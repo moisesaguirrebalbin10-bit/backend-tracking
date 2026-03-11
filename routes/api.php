@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Orders\OrderController;
 use App\Http\Controllers\Api\Users\UserController;
 use App\Http\Controllers\Api\Webhooks\WooCommerceWebhookController;
+use App\Http\Controllers\WooCommerceController;
 
 Route::prefix('v1')->group(function (): void {
     Route::get('/health', static fn () => response()->json(['ok' => true]));
@@ -28,6 +29,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/{order}/available-transitions', [OrderController::class, 'availableTransitions']);
             Route::post('/sync', [OrderController::class, 'sync']);
             Route::put('/{order}/status', [OrderController::class, 'updateStatus']);
+        });
+
+        Route::prefix('woo')->group(function () {
+            Route::get('/orders', [WooCommerceController::class, 'getOrders']);
         });
 
         Route::post('/users', [UserController::class, 'store']);

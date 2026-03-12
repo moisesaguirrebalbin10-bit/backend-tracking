@@ -34,10 +34,12 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('auth')->group(function (): void {
             Route::post('/logout', [AuthController::class, 'logout']);
         });
-
+        Route::get('/stores', [WooCommerceController::class, 'listStores']);
         Route::prefix('woo')->group(function () {
             Route::get('/orders/all', [WooCommerceController::class, 'getAllOrders']);
             Route::get('/orders', [WooCommerceController::class, 'getOrders']);
+            Route::get('/{id}',    [WooCommerceController::class, 'showOrder']);
+
         });
 
         Route::post('/users', [UserController::class, 'store']);

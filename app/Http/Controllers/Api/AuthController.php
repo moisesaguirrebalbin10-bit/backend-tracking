@@ -64,4 +64,12 @@ class AuthController extends Controller
             'refresh_token' => $newRefreshToken,
         ]);
     }
+
+    public function logout(RefreshRequest $request): JsonResponse
+    {
+        $token = (string) $request->validated('refresh_token');
+        $this->refreshTokenService->revoke($token);
+
+        return response()->json(['message' => 'Logged out'], 200);
+    }
 }

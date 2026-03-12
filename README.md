@@ -6,7 +6,8 @@ API backend en Laravel para gestionar órdenes sincronizadas desde WooCommerce, 
 
 - PHP 8.1+ / Laravel
 - PostgreSQL
-- JWT para autenticación (`JwtTokenService` + `RefreshTokenService`)
+- JWT para autenticación (`JwtTokenService` + `RefreshTokenService`).
+  Se agregó endpoint `POST /api/v1/auth/logout` que invalida el refresh token enviado en el cuerpo.
 - Integración WooCommerce vía `WooCommerceClient` (Guzzle)
 
 ---
@@ -55,7 +56,9 @@ Configurar al menos:
   - `JWT_SECRET`  
   - `JWT_ISSUER`  
   - `JWT_AUDIENCE`  
-  - `JWT_TTL_SECONDS` (ej. 900)  
+  - `JWT_TTL_SECONDS` (ej. 3600 para 1 hora; por defecto 900)
+  - `JWT_REFRESH_TTL_SECONDS` (duración del refresh token en segundos)
+
   - `JWT_REFRESH_TTL_SECONDS` (ej. 2592000)
 
 - **WooCommerce**

@@ -68,6 +68,15 @@ final class RefreshTokenService
         });
     }
 
+    public function revoke(string $refreshToken): void
+    {
+        $hash = $this->hash($refreshToken);
+        RefreshToken::query()
+            ->where('token_hash', $hash)
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => Carbon::now('UTC')]);
+    }
+
     private function expiresAt(): Carbon
     {
         $seconds = (int) config('jwt.refresh_ttl_seconds', 60 * 60 * 24 * 30);

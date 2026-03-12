@@ -31,6 +31,10 @@ Route::prefix('v1')->group(function (): void {
             Route::put('/{order}/status', [OrderController::class, 'updateStatus']);
         });
 
+        Route::prefix('auth')->group(function (): void {
+            Route::post('/logout', [AuthController::class, 'logout']);
+        });
+
         Route::prefix('woo')->group(function () {
             Route::get('/orders', [WooCommerceController::class, 'getOrders']);
         });
@@ -43,4 +47,3 @@ Route::prefix('v1')->group(function (): void {
         [WooCommerceWebhookController::class, 'handle'],
     );
 });
-

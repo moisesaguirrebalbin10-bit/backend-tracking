@@ -61,6 +61,15 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/orders/{id}',    [WooCommerceController::class, 'showOrder']);
             Route::put('/orders/{id}', [WooCommerceController::class, 'updateOrder']);
         });
+        // Egresos endpoints
+        Route::prefix('egresos')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\EgresoController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\EgresoController::class, 'store']);
+            Route::get('/{egreso}', [\App\Http\Controllers\Api\EgresoController::class, 'show']);
+            Route::put('/{egreso}', [\App\Http\Controllers\Api\EgresoController::class, 'update']);
+            Route::delete('/{egreso}', [\App\Http\Controllers\Api\EgresoController::class, 'destroy']);
+            Route::get('/{egreso}/logs', [\App\Http\Controllers\Api\EgresoController::class, 'logs']);
+        });
     });
 
     Route::post(

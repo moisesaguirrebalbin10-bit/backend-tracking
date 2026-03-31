@@ -15,19 +15,44 @@ class BsaleService
         $this->client = $client;
     }
 
-    public function getOrders($offset = 0, $limit = 50)
+    public function getOrders(int $offset = 0, int $limit = 50, array $filters = []): array
     {
-        $firstResponse = $this->client->get('documents', ['limit' => 1, 'state' => 0]);
+        $offset = max(0, $offset);
+        $limit = min(50, max(1, $limit));
+        $includeVariantDetails = (bool) ($filters['include_variant_details'] ?? false);
+
+        $baseParams = ['state' => 0];
+
+        if (!empty($filters['emissiondaterange'])) {
+            $baseParams['emissiondaterange'] = $filters['emissiondaterange'];
+        }
+
+        $firstResponse = $this->client->get('documents', array_merge($baseParams, ['limit' => 1]));
         $total = $firstResponse->json()['count'] ?? 0;
 
-        $realOffset = max(0, $total - $limit - $offset);
+        if ($offset >= $total) {
+            return [
+                'total_registros' => $total,
+                'items' => [],
+                'meta' => [
+                    'offset' => $offset,
+                    'limit' => $limit,
+                    'applied_offset' => null,
+                    'applied_limit' => 0,
+                    'filters' => $filters['meta'] ?? null,
+                ],
+            ];
+        }
 
-        $response = $this->client->get('documents', [
-            'limit'   => $limit,
+        $remaining = $total - $offset;
+        $pageSize = min($limit, $remaining);
+        $realOffset = max(0, $total - $offset - $pageSize);
+
+        $response = $this->client->get('documents', array_merge($baseParams, [
+            'limit'   => $pageSize,
             'offset'  => $realOffset,
-            'state'   => 0,
             'expand'  => '[client,sellers,attributes,payments,details]'
-        ]);
+        ]));
 
         $data = $response->json();
         
@@ -39,18 +64,25 @@ class BsaleService
                 $fullName = strtoupper(($vendedor['firstName'] ?? '') . ' ' . ($vendedor['lastName'] ?? ''));
                 return !str_contains($fullName, 'WEB');
             })
-            ->map(function ($order) {
-                return $this->formatOrder($order);
+            ->map(function ($order) use ($includeVariantDetails) {
+                return $this->formatOrder($order, $includeVariantDetails);
             })
             ->values();
 
         return [
             'total_registros' => $total,
-            'items' => $items
+            'items' => $items,
+            'meta' => [
+                'offset' => $offset,
+                'limit' => $limit,
+                'applied_offset' => $realOffset,
+                'applied_limit' => $pageSize,
+                'filters' => $filters['meta'] ?? null,
+            ],
         ];
     }
 
-    private function formatOrder($order) 
+    private function formatOrder($order, bool $includeVariantDetails = false) 
     {
         $timestamp = $order['generationDate'] ?? ($order['emissionDate'] ?? time());
 
@@ -90,11 +122,9 @@ class BsaleService
                 'metodos' => $metodosDetallados ?: "No encontrado", 
                 'montoTotal' => "S/ " . number_format($totalCaja, 2)
             ],
-            'prendas' => collect($order['details']['items'] ?? [])->map(function($item) {
+            'prendas' => collect($order['details']['items'] ?? [])->map(function($item) use ($includeVariantDetails) {
                 $variantId = $item['variant']['id'] ?? null;
-                
-                // Buscamos el detalle de la variante (Nombre Producto - Talla)
-                $infoProducto = $this->getVariantDetail($variantId);
+                $infoProducto = $this->resolveVariantDetail($item, $variantId, $includeVariantDetails);
                 
                 $montoPagadoReal = $item['totalAmount'];
                 $descuento = $item['totalDiscount'] ?? 0;
@@ -109,6 +139,51 @@ class BsaleService
                 ];
             })
         ];
+    }
+
+    private function resolveVariantDetail(array $item, $variantId, bool $includeVariantDetails = false): array
+    {
+        $localName = $this->extractVariantNameFromDocument($item);
+
+        if ($localName !== null) {
+            return ['nombre' => $localName];
+        }
+
+        if (!$variantId) {
+            return ['nombre' => 'No encontrado'];
+        }
+
+        if ($includeVariantDetails) {
+            return $this->getVariantDetail($variantId);
+        }
+
+        // En el listado evitamos golpear el endpoint de variantes por cada prenda;
+        // si el documento no trae un nombre útil, devolvemos un fallback estable.
+
+        $sku = trim((string) ($item['variant']['code'] ?? ''));
+
+        return ['nombre' => $sku !== '' ? $sku : 'No encontrado'];
+    }
+
+    private function extractVariantNameFromDocument(array $item): ?string
+    {
+        $candidates = [
+            $item['name'] ?? null,
+            $item['description'] ?? null,
+            $item['variant']['description'] ?? null,
+            $item['variant']['name'] ?? null,
+            $item['variant']['product']['name'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $value = trim((string) $candidate);
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function getVariantDetail($variantId)

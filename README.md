@@ -67,6 +67,15 @@ Configurar al menos:
   - `WOO_CONSUMER_SECRET`
   - `WOO_WEBHOOK_SECRET` – usado para validar la firma del webhook
   - `WOO_TIMEOUT_SECONDS`
+  - `WOO_SYNC_OVERLAP_MINUTES` – solapamiento para incremental por `date_modified`
+  - `WOO_SYNC_BOOTSTRAP_LOOKBACK_MINUTES` – ventana inicial si aún no existe checkpoint
+
+- **Bsale**
+  - `BSALE_BASE_URL`
+  - `BSALE_TOKEN`
+  - `BSALE_BATCH_SIZE`
+  - `BSALE_SYNC_OVERLAP_MINUTES` – solapamiento para incremental por `generationDate`
+  - `BSALE_SYNC_BOOTSTRAP_LOOKBACK_MINUTES` – ventana inicial si aún no existe checkpoint
 
 3. **Generar clave de aplicación**
 
@@ -80,6 +89,28 @@ php artisan key:generate
 php artisan migrate
 ```
 
+### Usuarios operativos de prueba
+
+Puedes crear o actualizar cuentas listas para el flujo operativo usando cualquiera de estas opciones:
+
+```bash
+php artisan db:seed --class=OperationalUsersSeeder
+php artisan users:seed-operational --password="secret123"
+```
+
+Se generan estas cuentas base:
+
+- `empaquetador`: `operaciones.empaquetador@tracking.local`
+- `despachador`: `operaciones.despachador@tracking.local`
+- `delivery`: `delivery.pruebas@tracking.local`
+
+Variables opcionales:
+
+- `OPERATIONAL_USERS_DEFAULT_PASSWORD`
+- `OPERATIONAL_PACKER_EMAIL`
+- `OPERATIONAL_DISPATCHER_EMAIL`
+- `OPERATIONAL_DELIVERY_EMAIL`
+
 5. **Ejecutar el servidor**
 
 ```bash
@@ -87,6 +118,44 @@ php artisan serve
 ```
 
 La API quedará disponible típicamente en `http://localhost:8000`.
+
+---
+
+## Sincronización programada
+
+Se implementó un esquema de sincronización en dos capas:
+
+- **Full sync** para reconciliación completa.
+- **Incremental sync** cada minuto usando checkpoints persistidos en BD.
+
+### Comandos disponibles
+
+```bash
+php artisan sync:woo:full
+php artisan sync:woo:incremental
+php artisan sync:bsale:full
+php artisan sync:bsale:incremental
+```
+
+WooCommerce también acepta un subconjunto de tiendas:
+
+```bash
+php artisan sync:woo:full ezzeta,otra-tienda
+php artisan sync:woo:incremental ezzeta
+```
+
+### Schedule configurado
+
+- `sync:woo:incremental` cada minuto usando `modified_after`.
+- `sync:bsale:incremental` cada minuto usando `generationDate`.
+- `sync:woo:full` diariamente a las `02:30`.
+- `sync:bsale:full` diariamente a las `03:00`.
+
+### Notas operativas
+
+- Para WooCommerce, el cursor incremental se actualiza con `date_modified_gmt` de cada pedido.
+- Para Bsale, `documents` no expone un `updatedAt` utilizable; el incremental se resuelve con `generationDate` y comparación por `fingerprint` local.
+- Antes de usar los schedules en producción, ejecutar al menos un full sync inicial.
 
 ---
 
@@ -244,7 +313,38 @@ Parámetros:
 
 > Nota: la implementación interna de la sincronización (`OrderService::syncFromWooCommerce`) puede ampliarse para usar `WooCommerceClient` y poblar la tabla `orders`.
 
-### POST /api/v1/orders/{order}/status
+### GET /api/v1/orders/{order}/available-transitions
+
+Devuelve las transiciones permitidas para el usuario autenticado según rol, estado actual y asignación.
+
+- **Headers**
+
+`Authorization: Bearer {access_token}`
+
+- **Respuesta 200**
+
+```json
+{
+  "current_status": {
+    "value": "empaquetado",
+    "label": "Empaquetado"
+  },
+  "available_transitions": [
+    {
+      "value": "despachado",
+      "label": "Despachado",
+      "requires_delivery_user_id": true
+    },
+    {
+      "value": "error_en_pedido",
+      "label": "Error en Pedido",
+      "requires_delivery_user_id": false
+    }
+  ]
+}
+```
+
+### PUT /api/v1/orders/{order}/status
 
 Actualiza el estado de una orden y registra un evento en la línea de tiempo (`OrderTimeline`).
 
@@ -260,19 +360,226 @@ Actualiza el estado de una orden y registra un evento en la línea de tiempo (`O
 
 ```json
 {
-  "status": "completed",
-  "message": "Actualizado manualmente por soporte"
+  "status": "despachado",
+  "delivery_user_id": 12,
+  "error_reason": null
 }
 ```
 
 Reglas:
 
-- `status` – requerido, string, máx. 100 caracteres.
-- `message` – opcional, string.
+- `status` – requerido. Estados soportados por flujo interno: `en_proceso`, `empaquetado`, `despachado`, `en_camino`, `entregado`, `error_en_pedido`, `cancelado`.
+- `delivery_user_id` – requerido cuando `status=despachado`; debe pertenecer a un usuario con rol `delivery`.
+- `error_reason` – requerido cuando `status=error_en_pedido`.
+- `evidence_image` o `delivery_image` – opcionales según el flujo que use frontend para adjuntar evidencia.
+
+Reglas de autorización operativa:
+
+- `admin`: puede ejecutar cualquier transición válida del grafo.
+- `empaquetador`: solo puede ver su cola `en_proceso` y mover a `empaquetado` o `error_en_pedido`.
+- `despachador`: solo puede ver su cola `empaquetado` y mover a `despachado` o `error_en_pedido`.
+- `delivery`: solo puede ver órdenes asignadas a su usuario y mover `despachado -> en_camino` y `en_camino -> entregado`, además de `error_en_pedido`.
 
 - **Respuesta 200**
 
-Devuelve la orden actualizada.
+```json
+{
+  "message": "Order status updated successfully",
+  "order": {
+    "id": 2130,
+    "status": "despachado",
+    "assigned_delivery_user_id": 12,
+    "logs": []
+  }
+}
+```
+
+- **Respuesta 403**
+
+```json
+{
+  "message": "El usuario Operaciones Despacho (despachador) no puede pasar el pedido #2130 de despachado a entregado.",
+  "error": "FORBIDDEN_ORDER_TRANSITION"
+}
+```
+
+- **Respuesta 422**
+
+```json
+{
+  "message": "delivery_user_id is required when marking an order as despachado.",
+  "error": "INVALID_STATUS_TRANSITION"
+}
+```
+
+---
+
+## Dashboard operacional
+
+Estos endpoints son la fuente recomendada para dashboard, cola operativa, detalle y métricas. Frontend no debe consultar históricos remotos de Bsale o Woo para este módulo.
+
+### GET /api/v1/dashboard/orders
+
+Lista unificada de Woo (`orders`) y Bsale (`bsale_documents`) ya normalizada para UI.
+
+- **Headers**
+
+`Authorization: Bearer {access_token}`
+
+- **Query params**
+
+- `source=all|woo|bsale`
+- `scope=all|my_queue`
+- `period=day|week|month|range`
+- `date_from=YYYY-MM-DD` y `date_to=YYYY-MM-DD` cuando `period=range`
+- `search`
+- `status`
+- `page`
+- `per_page`
+
+Notas de comportamiento:
+
+- Para `empaquetador`, `despachador` y `delivery`, si no se envía `scope`, backend fuerza `my_queue`.
+- `bsale` siempre se entrega como `readonly=true`.
+- `delivery` solo recibe órdenes Woo asignadas a `assigned_delivery_user_id = auth()->id()` y con estado `despachado` o `en_camino`.
+
+- **Respuesta 200 (ejemplo)**
+
+```json
+{
+  "current_page": 1,
+  "data": [
+    {
+      "source": "woo",
+      "source_record_id": 2130,
+      "readonly": false,
+      "order_number": "30847",
+      "bsale_receipt": "B002-1452",
+      "customer_name": "Kevin Alexander López Chilón",
+      "ordered_at": "2026-03-21 18:59:48",
+      "delivery_date": null,
+      "delivered_at": null,
+      "location": "CAJAMARCA",
+      "total": 100,
+      "status": {
+        "value": "despachado",
+        "label": "Despachado",
+        "raw": "despachado"
+      },
+      "assigned_delivery_user_id": 12,
+      "assigned_delivery_name": "Delivery Pruebas",
+      "vendor_name": "ezzeta",
+      "store_slug": "ezzeta",
+      "detail_endpoint": "/api/v1/dashboard/orders/woo/2130"
+    }
+  ],
+  "per_page": 50,
+  "total": 1
+}
+```
+
+### GET /api/v1/dashboard/orders/metrics
+
+Usa los mismos filtros que el listado y devuelve agregados del período/cola visible.
+
+- **Respuesta 200**
+
+```json
+{
+  "filters": {
+    "source": "all",
+    "scope": "my_queue",
+    "period": "day",
+    "status": null,
+    "search": ""
+  },
+  "metrics": {
+    "total_orders": 4,
+    "delivered_orders": 1,
+    "in_process_orders": 2,
+    "error_orders": 1,
+    "cancelled_orders": 0,
+    "total_amount": 296.99
+  }
+}
+```
+
+### GET /api/v1/dashboard/orders/{source}/{id}
+
+Devuelve el detalle ya normalizado para la modal de UI.
+
+- `source` soporta `woo` y `bsale`.
+- Para `bsale`, solo `admin` puede abrir el detalle.
+- Para `woo`, el detalle respeta visibilidad por cola/rol.
+
+- **Respuesta 200 para Woo (ejemplo)**
+
+```json
+{
+  "order": {
+    "source": "woo",
+    "readonly": false,
+    "id": 2130,
+    "external_id": "30847",
+    "order_number": "30847",
+    "bsale_receipt": "B002-1452",
+    "status": {
+      "value": "despachado",
+      "label": "Despachado",
+      "raw": "processing",
+      "woo_label": "En Proceso"
+    },
+    "assigned_delivery_user_id": 12,
+    "assigned_delivery_name": "Delivery Pruebas",
+    "assigned_delivery": {
+      "id": 12,
+      "name": "Delivery Pruebas",
+      "email": "delivery.pruebas@tracking.local"
+    },
+    "dispatch_date": null,
+    "location": "CAJAMARCA",
+    "customer": {
+      "name": "Kevin Alexander López Chilón",
+      "document": "74146498",
+      "email": "n00224750@upn.pe",
+      "phone": "903373607"
+    },
+    "seller": {
+      "name": "ezzeta",
+      "issue_date": "2026-03-21",
+      "receipt": "B002-1452"
+    },
+    "payment": {
+      "methods": [
+        {
+          "method": "Yape",
+          "amount": 100
+        }
+      ],
+      "total": 100
+    },
+    "products": [],
+    "allowed_transitions": [
+      {
+        "value": "en_camino",
+        "label": "En Camino",
+        "requires_delivery_user_id": false
+      },
+      {
+        "value": "error_en_pedido",
+        "label": "Error en Pedido",
+        "requires_delivery_user_id": false
+      }
+    ],
+    "meta": {
+      "store_slug": "ezzeta",
+      "woo_status": "processing",
+      "ordered_at": "2026-03-21T18:59:48-05:00",
+      "delivered_at": null
+    }
+  }
+}
+```
 
 ---
 
@@ -320,19 +627,21 @@ Lista usuarios para tabla de administración e incluye indicador `is_active` seg
 
 `Authorization: Bearer {access_token}`
 
-Solo un usuario administrador puede ejecutar este endpoint.
+Un usuario `admin` puede listar todos los usuarios. Un usuario `despachador` puede listar solo usuarios `delivery` para la asignación de despacho.
 
 - **Query params opcionales**
 
 - `search` – filtra por nombre o correo.
 - `per_page` – paginación (10 a 100, por defecto 20).
 - `window_seconds` – ventana para considerar un usuario activo (30 a 3600, por defecto 120).
+- `role` – filtro opcional por rol. Si el actor es `despachador`, solo se permite `role=delivery`.
 
 - **Respuesta 200 (ejemplo simplificado)**
 
 ```json
 {
   "window_seconds": 120,
+  "role_filter": "delivery",
   "active_users": 2,
   "total_users": 8,
   "users": {

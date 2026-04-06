@@ -13,6 +13,16 @@ use RuntimeException;
 
 final class WooCommerceWebhookService
 {
+    private function appNow(): Carbon
+    {
+        return Carbon::now((string) config('app.timezone', 'UTC'));
+    }
+
+    private function appTimezone(): string
+    {
+        return (string) config('app.timezone', 'UTC');
+    }
+
     public function handle(Request $request): void
     {
         $this->assertSignatureIsValid($request);
@@ -50,8 +60,8 @@ final class WooCommerceWebhookService
                 'meta' => $payload,
             ]);
             $order->forceFill([
-                'created_at' => $wooCreatedAt ?? Carbon::now('UTC'),
-                'synced_at' => Carbon::now('UTC'),
+                'created_at' => $wooCreatedAt ?? $this->appNow(),
+                'synced_at' => $this->appNow(),
             ]);
             $order->save();
         }
@@ -61,7 +71,7 @@ final class WooCommerceWebhookService
             'status' => $status,
             'message' => 'Webhook WooCommerce',
             'source' => 'webhook',
-            'occurred_at' => Carbon::now('UTC'),
+            'occurred_at' => $this->appNow(),
         ]);
     }
 
@@ -86,17 +96,27 @@ final class WooCommerceWebhookService
 
     private function extractWooCreatedAt(array $payload): ?Carbon
     {
-        $rawDate = (string) ($payload['date_created_gmt'] ?? $payload['date_created'] ?? '');
+        $localDate = $payload['date_created'] ?? null;
+        $gmtDate = $payload['date_created_gmt'] ?? null;
+        $timezone = $this->appTimezone();
 
-        if ($rawDate === '') {
-            return null;
+        if (is_string($localDate) && trim($localDate) !== '') {
+            try {
+                return Carbon::parse($localDate, $timezone);
+            } catch (\Throwable) {
+                // Fallback to GMT value below.
+            }
         }
 
-        try {
-            return Carbon::parse($rawDate, 'UTC');
-        } catch (\Throwable) {
-            return null;
+        if (is_string($gmtDate) && trim($gmtDate) !== '') {
+            try {
+                return Carbon::parse($gmtDate, 'UTC')->setTimezone($timezone);
+            } catch (\Throwable) {
+                return null;
+            }
         }
+
+        return null;
     }
 
     /**

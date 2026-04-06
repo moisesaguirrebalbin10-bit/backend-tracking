@@ -36,6 +36,11 @@ class UpdateOrderStatusRequest extends FormRequest
                 'string',
                 'max:500',
             ],
+            'delivery_user_id' => [
+                'nullable',
+                'integer',
+                'exists:users,id',
+            ],
             'delivery_image' => [
                 'nullable',
                 'image',
@@ -60,6 +65,8 @@ class UpdateOrderStatusRequest extends FormRequest
             'status.required' => 'El estado del pedido es requerido',
             'status.enum' => 'El estado del pedido no es válido',
             'error_reason.max' => 'La razón del error no puede exceder 500 caracteres',
+            'delivery_user_id.integer' => 'El delivery asignado no es válido.',
+            'delivery_user_id.exists' => 'El delivery asignado no existe.',
             'delivery_image.image' => 'El archivo debe ser una imagen válida',
             'delivery_image.max' => 'La imagen no puede exceder 5MB',
             'delivery_image.mimes' => 'La imagen debe ser JPEG, PNG, JPG, GIF o WEBP',
@@ -83,6 +90,13 @@ class UpdateOrderStatusRequest extends FormRequest
     public function getErrorReason(): ?string
     {
         return $this->validated('error_reason');
+    }
+
+    public function getDeliveryUserId(): ?int
+    {
+        $value = $this->validated('delivery_user_id');
+
+        return $value !== null ? (int) $value : null;
     }
 
     /**

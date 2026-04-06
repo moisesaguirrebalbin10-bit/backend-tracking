@@ -34,8 +34,8 @@ enum UserRole: string
     {
         return match ($role) {
             self::ADMIN => OrderStatus::cases(),
-            self::EMPAQUETADOR => [OrderStatus::EMPAQUETADO],
-            self::DESPACHADOR => [OrderStatus::DESPACHADO, OrderStatus::EN_CAMINO],
+            self::EMPAQUETADOR => [OrderStatus::EMPAQUETADO, OrderStatus::ERROR],
+            self::DESPACHADOR => [OrderStatus::DESPACHADO, OrderStatus::ERROR],
             self::DELIVERY => [OrderStatus::EN_CAMINO, OrderStatus::ENTREGADO, OrderStatus::ERROR],
             default => [],
         };

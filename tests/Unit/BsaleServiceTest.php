@@ -133,6 +133,64 @@ class BsaleServiceTest extends TestCase
         $this->assertSame('SKU-999', $result['items'][0]['prendas'][0]['nombre']);
     }
 
+    public function test_it_filters_documents_marked_as_web_by_document_type(): void
+    {
+        $client = Mockery::mock(BsaleClient::class);
+        $service = new BsaleService($client);
+
+        $client->shouldReceive('get')
+            ->once()
+            ->andReturn($this->jsonResponse(['count' => 2]));
+
+        $client->shouldReceive('get')
+            ->once()
+            ->andReturn($this->jsonResponse([
+                'items' => [
+                    $this->document(
+                        number: 1004,
+                        serial: 'WEB-1004',
+                        extra: [
+                            'document_type' => ['name' => 'WEB BOLETA - T'],
+                            'sellers' => [
+                                'items' => [
+                                    ['firstName' => 'WEB', 'lastName' => 'EZZETA'],
+                                ],
+                            ],
+                        ],
+                    ),
+                    $this->document(number: 1005, serial: 'TK01-1005'),
+                ],
+            ]));
+
+        $result = $service->getOrders(0, 50);
+
+        $this->assertCount(1, $result['items']);
+        $this->assertSame('TK01-1005', $result['items'][0]['boleta']);
+    }
+
+    public function test_it_detects_web_seller_documents_for_exclusion(): void
+    {
+        $client = Mockery::mock(BsaleClient::class);
+        $service = new BsaleService($client);
+
+        $this->assertTrue($service->shouldExcludeDocument($this->document(
+            number: 1006,
+            serial: 'WEB-1006',
+            extra: [
+                'sellers' => [
+                    'items' => [
+                        ['firstName' => 'WEB', 'lastName' => 'MAXETA'],
+                    ],
+                ],
+            ],
+        )));
+
+        $this->assertFalse($service->shouldExcludeDocument($this->document(
+            number: 1007,
+            serial: 'TK01-1007',
+        )));
+    }
+
     private function jsonResponse(array $payload, int $status = 200): Response
     {
         return new Response(
@@ -144,9 +202,9 @@ class BsaleServiceTest extends TestCase
         );
     }
 
-    private function document(int $number, string $serial, array $details = []): array
+    private function document(int $number, string $serial, array $details = [], array $extra = []): array
     {
-        return [
+        return array_replace_recursive([
             'number' => $number,
             'serialNumber' => $serial,
             'generationDate' => 1711843200,
@@ -166,6 +224,6 @@ class BsaleServiceTest extends TestCase
             'details' => [
                 'items' => $details,
             ],
-        ];
+        ], $extra);
     }
 }

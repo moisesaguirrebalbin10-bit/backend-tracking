@@ -26,6 +26,7 @@ class Order extends Model
     /** @var list<string> */
     protected $fillable = [
         'user_id',
+        'assigned_delivery_user_id',
         'store_slug',
         'external_id',
         'status',
@@ -61,6 +62,11 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function assignedDelivery(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_delivery_user_id');
     }
 
     /**

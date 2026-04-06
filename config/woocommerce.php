@@ -24,6 +24,9 @@ return [
     'timeout'     => (int) env('WOO_TIMEOUT', 30),
     'per_page'    => (int) env('WOO_PER_PAGE', 100),
     'max_pages'   => (int) env('WOO_MAX_PAGES', 0),
+    'sync_overlap_minutes' => (int) env('WOO_SYNC_OVERLAP_MINUTES', 2),
+    'bootstrap_lookback_minutes' => (int) env('WOO_SYNC_BOOTSTRAP_LOOKBACK_MINUTES', 1440),
+    'stale_after_minutes' => (int) env('WOO_SYNC_STALE_AFTER_MINUTES', 30),
  
 ];
 

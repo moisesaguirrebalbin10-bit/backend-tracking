@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class OrderController extends Controller
 {
@@ -96,6 +97,7 @@ class OrderController extends Controller
                 'run' => [
                     'id' => $run->id,
                     'status' => $run->status,
+                    'mode' => $run->mode,
                     'stores' => $run->stores,
                     'from_date' => optional($run->from_date)->toIso8601String(),
                     'to_date' => optional($run->to_date)->toIso8601String(),
@@ -115,6 +117,7 @@ class OrderController extends Controller
             'run' => [
                 'id' => $syncRun->id,
                 'status' => $syncRun->status,
+                'mode' => $syncRun->mode,
                 'stores' => $syncRun->stores,
                 'total_orders' => $syncRun->total_orders,
                 'synced_orders' => $syncRun->synced_orders,
@@ -156,6 +159,7 @@ class OrderController extends Controller
                 order: $order,
                 newStatus: $request->getStatus(),
                 user: $user,
+                deliveryUserId: $request->getDeliveryUserId(),
                 errorReason: $request->getErrorReason(),
                 evidenceImagePath: $evidenceImagePath,
                 ipAddress: $request->ip()
@@ -170,6 +174,11 @@ class OrderController extends Controller
                 'message' => $e->getMessage(),
                 'error' => 'INVALID_STATUS_TRANSITION',
             ], 422);
+        } catch (AccessDeniedHttpException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'error' => 'FORBIDDEN_ORDER_TRANSITION',
+            ], 403);
         } catch (\Throwable $e) {
             \Log::error('Order status update error', [
                 'order_id' => $order->id,
@@ -203,12 +212,14 @@ class OrderController extends Controller
         // Get valid transitions from the current status
         $validTransitions = OrderStatus::validTransitions()[$currentStatus->value] ?? [];
 
-        // Filter by user permissions
+        // Filter by user permissions and current operational queue.
+        $allowedTransitions = $this->statusService->allowedTransitions($order, $user);
         $availableTransitions = collect($validTransitions)
-            ->filter(fn ($status) => $user->canUpdateOrderStatus($status))
+            ->filter(fn ($status) => in_array($status, $allowedTransitions, true))
             ->map(fn ($status) => [
                 'value' => $status->value,
                 'label' => $status->label(),
+                'requires_delivery_user_id' => $status === OrderStatus::DESPACHADO,
             ])
             ->values();
 

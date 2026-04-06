@@ -64,6 +64,11 @@ class User extends Authenticatable
         return $this->hasMany(Order::class);
     }
 
+    public function deliveryAssignments(): HasMany
+    {
+        return $this->hasMany(Order::class, 'assigned_delivery_user_id');
+    }
+
     /**
      * Get all audit logs created by this user.
      */

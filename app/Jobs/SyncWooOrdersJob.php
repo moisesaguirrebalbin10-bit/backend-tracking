@@ -8,6 +8,7 @@ use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\OrderSyncChange;
 use App\Models\OrderSyncRun;
+use App\Services\Sync\SyncStateService;
 use App\Services\WooCommerceManager;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -24,11 +25,21 @@ class SyncWooOrdersJob implements ShouldQueue
     /** @var list<string> */
     private const AUDITABLE_FIELDS = ['status', 'total', 'deleted_at'];
 
+    private function appNow(): Carbon
+    {
+        return Carbon::now((string) config('app.timezone', 'UTC'));
+    }
+
+    private function appTimezone(): string
+    {
+        return (string) config('app.timezone', 'UTC');
+    }
+
     public function __construct(private readonly int $runId)
     {
     }
 
-    public function handle(WooCommerceManager $manager): void
+    public function handle(WooCommerceManager $manager, SyncStateService $syncStates): void
     {
         /** @var OrderSyncRun|null $run */
         $run = OrderSyncRun::query()->find($this->runId);
@@ -39,7 +50,7 @@ class SyncWooOrdersJob implements ShouldQueue
 
         $run->forceFill([
             'status' => 'running',
-            'started_at' => Carbon::now('UTC'),
+            'started_at' => $this->appNow(),
             'error_message' => null,
         ])->save();
 
@@ -49,24 +60,29 @@ class SyncWooOrdersJob implements ShouldQueue
         $isFullSync = $run->from_date === null && $run->to_date === null;
 
         try {
-            $wooParams = [];
-
-            if ($run->from_date !== null) {
-                $wooParams['after'] = $run->from_date->toIso8601String();
-            }
-
-            if ($run->to_date !== null) {
-                $wooParams['before'] = $run->to_date->toIso8601String();
-            }
+            $wooParams = $this->buildWooParams($run);
 
             foreach (($run->stores ?? []) as $slug) {
+                $slug = (string) $slug;
+
                 try {
-                    $orders = $manager->store((string) $slug)->getAll('orders', $wooParams, -1);
+                    $syncStates->markStarted('woo_orders', $slug, [
+                        'mode' => $run->mode,
+                        'run_id' => $run->id,
+                    ]);
+
+                    $orders = $manager->store($slug)->getAll('orders', $wooParams, -1);
                     $totalOrders += count($orders);
+                    $maxModifiedAt = null;
 
                     foreach ($orders as $wooOrder) {
                         try {
-                            $result = $this->syncOrder($wooOrder, (string) $slug, $run);
+                            $result = $this->syncOrder($wooOrder, $slug, $run);
+
+                            $modifiedAt = $this->extractWooModifiedAt($wooOrder);
+                            if ($modifiedAt !== null && ($maxModifiedAt === null || $modifiedAt->greaterThan($maxModifiedAt))) {
+                                $maxModifiedAt = $modifiedAt;
+                            }
 
                             if (in_array($result['action'], ['created', 'changed', 'no_change'], true)) {
                                 $syncedOrders++;
@@ -87,13 +103,30 @@ class SyncWooOrdersJob implements ShouldQueue
                             ->filter(fn (string $id): bool => $id !== '')
                             ->values();
 
-                        $this->syncSoftDeletedOrdersForStore((string) $slug, $remoteExternalIds, $run);
+                        $this->syncSoftDeletedOrdersForStore($slug, $remoteExternalIds, $run);
                     }
+
+                    $syncStates->markSucceeded(
+                        'woo_orders',
+                        $slug,
+                        $maxModifiedAt ?? $this->appNow(),
+                        [
+                            'mode' => $run->mode,
+                            'run_id' => $run->id,
+                            'last_total_orders' => count($orders),
+                        ],
+                        $isFullSync,
+                    );
                 } catch (Throwable $e) {
                     $failedStores[] = [
-                        'store' => (string) $slug,
+                        'store' => $slug,
                         'message' => $e->getMessage(),
                     ];
+
+                    $syncStates->markFailed('woo_orders', $slug, $e->getMessage(), [
+                        'mode' => $run->mode,
+                        'run_id' => $run->id,
+                    ]);
                 }
 
                 $run->forceFill([
@@ -108,7 +141,7 @@ class SyncWooOrdersJob implements ShouldQueue
                 'total_orders' => $totalOrders,
                 'synced_orders' => $syncedOrders,
                 'failed_stores' => $failedStores,
-                'finished_at' => Carbon::now('UTC'),
+                'finished_at' => $this->appNow(),
             ])->save();
         } catch (Throwable $e) {
             $run->forceFill([
@@ -117,7 +150,7 @@ class SyncWooOrdersJob implements ShouldQueue
                 'total_orders' => $totalOrders,
                 'synced_orders' => $syncedOrders,
                 'failed_stores' => $failedStores,
-                'finished_at' => Carbon::now('UTC'),
+                'finished_at' => $this->appNow(),
             ])->save();
 
             throw $e;
@@ -156,8 +189,8 @@ class SyncWooOrdersJob implements ShouldQueue
                     'status' => $currentWooMappedStatus,
                 ]);
                 $order->forceFill([
-                    'synced_at' => Carbon::now('UTC'),
-                    'created_at' => $wooCreatedAt ?? Carbon::now('UTC'),
+                    'synced_at' => $this->appNow(),
+                    'created_at' => $wooCreatedAt ?? $this->appNow(),
                 ]);
                 $order->save();
 
@@ -183,7 +216,7 @@ class SyncWooOrdersJob implements ShouldQueue
 
             $changes = [];
             $updateData = [
-                'synced_at' => Carbon::now('UTC'),
+                'synced_at' => $this->appNow(),
             ];
 
             if ($existingOrder->trashed()) {
@@ -267,7 +300,7 @@ class SyncWooOrdersJob implements ShouldQueue
 
             if ($changes === []) {
                 $existingOrder->forceFill([
-                    'synced_at' => Carbon::now('UTC'),
+                    'synced_at' => $this->appNow(),
                 ])->save();
 
                 return [
@@ -324,21 +357,71 @@ class SyncWooOrdersJob implements ShouldQueue
 
     private function extractWooCreatedAt(array $wooOrder): ?Carbon
     {
-        $rawDate = (string) (
-            $wooOrder['date_created_gmt']
-            ?? $wooOrder['date_created']
-            ?? ''
+        return $this->parseWooDate(
+            $wooOrder['date_created'] ?? null,
+            $wooOrder['date_created_gmt'] ?? null,
         );
+    }
 
-        if ($rawDate === '') {
-            return null;
+    /**
+     * @return array<string, string>
+     */
+    private function buildWooParams(OrderSyncRun $run): array
+    {
+        $params = [];
+
+        if ($run->mode === 'incremental') {
+            if ($run->from_date !== null) {
+                $params['modified_after'] = $run->from_date->toIso8601String();
+            }
+
+            if ($run->to_date !== null) {
+                $params['modified_before'] = $run->to_date->toIso8601String();
+            }
+
+            return $params;
         }
 
-        try {
-            return Carbon::parse($rawDate, 'UTC');
-        } catch (Throwable) {
-            return null;
+        if ($run->from_date !== null) {
+            $params['after'] = $run->from_date->toIso8601String();
         }
+
+        if ($run->to_date !== null) {
+            $params['before'] = $run->to_date->toIso8601String();
+        }
+
+        return $params;
+    }
+
+    private function extractWooModifiedAt(array $wooOrder): ?Carbon
+    {
+        return $this->parseWooDate(
+            $wooOrder['date_modified'] ?? null,
+            $wooOrder['date_modified_gmt'] ?? null,
+        );
+    }
+
+    private function parseWooDate(mixed $localDate, mixed $gmtDate): ?Carbon
+    {
+        $timezone = $this->appTimezone();
+
+        if (is_string($localDate) && trim($localDate) !== '') {
+            try {
+                return Carbon::parse($localDate, $timezone);
+            } catch (Throwable) {
+                // Fallback to GMT value below.
+            }
+        }
+
+        if (is_string($gmtDate) && trim($gmtDate) !== '') {
+            try {
+                return Carbon::parse($gmtDate, 'UTC')->setTimezone($timezone);
+            } catch (Throwable) {
+                return null;
+            }
+        }
+
+        return null;
     }
 
     private function createSyncChange(

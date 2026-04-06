@@ -19,7 +19,9 @@ class UserController extends Controller
         /** @var User|null $actor */
         $actor = $request->user();
 
-        if ($actor === null || ! $actor->isAdmin()) {
+        $isDispatcher = $actor?->hasRole(UserRole::DESPACHADOR) ?? false;
+
+        if ($actor === null || (! $actor->isAdmin() && ! $isDispatcher)) {
             return response()->json([
                 'message' => 'No autorizado para listar usuarios.',
             ], 403);
@@ -29,6 +31,27 @@ class UserController extends Controller
         $threshold = now()->subSeconds($windowSeconds);
 
         $query = User::query()->latest('id');
+
+        $roleFilter = trim((string) $request->query('role', ''));
+        if ($roleFilter !== '') {
+            $role = UserRole::tryFrom($roleFilter);
+
+            if ($role === null) {
+                return response()->json([
+                    'message' => 'El rol solicitado no es válido.',
+                ], 422);
+            }
+
+            if ($isDispatcher && $role !== UserRole::DELIVERY) {
+                return response()->json([
+                    'message' => 'El rol despachador solo puede listar usuarios delivery.',
+                ], 403);
+            }
+
+            $query->where('role', $role->value);
+        } elseif ($isDispatcher) {
+            $query->where('role', UserRole::DELIVERY->value);
+        }
 
         $search = trim((string) $request->query('search', ''));
         if ($search !== '') {
@@ -61,6 +84,7 @@ class UserController extends Controller
 
         return response()->json([
             'window_seconds' => $windowSeconds,
+            'role_filter' => $roleFilter !== '' ? $roleFilter : ($isDispatcher ? UserRole::DELIVERY->value : null),
             'active_users' => $activeUsers,
             'total_users' => User::query()->count(),
             'users' => $users,

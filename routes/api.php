@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DashboardOrdersController;
 use App\Http\Controllers\Api\Orders\OrderController;
 use App\Http\Controllers\Api\Orders\PublicOrderLookupController;
 use App\Http\Controllers\Api\Users\UserController;
@@ -52,6 +53,14 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/', [UserController::class, 'index']);
             Route::post('/', [UserController::class, 'store']);
             Route::post('/heartbeat', [UserController::class, 'heartbeat']);
+        });
+
+        Route::prefix('dashboard/orders')->group(function (): void {
+            Route::get('/', [DashboardOrdersController::class, 'index']);
+            Route::get('/metrics', [DashboardOrdersController::class, 'metrics']);
+            Route::get('/{source}/{id}', [DashboardOrdersController::class, 'show'])
+                ->whereIn('source', ['woo', 'bsale'])
+                ->whereNumber('id');
         });
 
         Route::get('/stores', [WooCommerceController::class, 'listStores']);

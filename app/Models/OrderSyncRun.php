@@ -14,6 +14,7 @@ class OrderSyncRun extends Model
 
     protected $fillable = [
         'status',
+        'mode',
         'requested_by',
         'stores',
         'from_date',

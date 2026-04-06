@@ -37,6 +37,7 @@ final class OrderService
 
         $run = OrderSyncRun::query()->create([
             'status' => 'queued',
+            'mode' => $request->getFromDate() !== null || $request->getToDate() !== null ? 'date_range' : 'full',
             'requested_by' => auth()->id(),
             'stores' => $stores,
             'from_date' => $request->getFromDate(),

@@ -34,7 +34,7 @@ class BsaleClient
             'Accept' => 'application/json',
         ])
             ->baseUrl(rtrim($this->baseUrl, '/'))
-            ->timeout(15)
+            ->timeout((int) Config::get('bsale.timeout', 15))
             ->connectTimeout(10)
             ->get('/' . $path, $params);
     }

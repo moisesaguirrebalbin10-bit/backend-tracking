@@ -48,7 +48,13 @@ class DashboardOrdersController extends Controller
 
         $metrics = $this->filteredDashboardBaseQuery($request, applyStatusFilter: false)
             ->selectRaw('COUNT(*) as total_orders')
-            ->selectRaw('COALESCE(SUM(total), 0) as total_amount')
+            ->selectRaw("COALESCE(SUM(CASE WHEN {$normalizedStatusSql} IN (?, ?, ?, ?, ?) THEN total ELSE 0 END), 0) as total_amount", [
+                OrderStatus::EN_PROCESO->value,
+                OrderStatus::EMPAQUETADO->value,
+                OrderStatus::DESPACHADO->value,
+                OrderStatus::EN_CAMINO->value,
+                OrderStatus::ENTREGADO->value,
+            ])
             ->selectRaw("SUM(CASE WHEN {$normalizedStatusSql} = ? THEN 1 ELSE 0 END) as delivered_orders", [OrderStatus::ENTREGADO->value])
             ->selectRaw("SUM(CASE WHEN {$normalizedStatusSql} IN (?, ?, ?, ?) THEN 1 ELSE 0 END) as in_process_orders", [
                 OrderStatus::EN_PROCESO->value,
@@ -100,6 +106,7 @@ class DashboardOrdersController extends Controller
         return $this->filteredDashboardBaseQuery($request, $applyStatusFilter)
             ->select('dashboard_orders.*')
             ->selectRaw("{$normalizedStatusSql} as normalized_status")
+            ->orderByDesc('ingested_at')
             ->orderByDesc('ordered_at')
             ->orderByDesc('source_record_id');
     }
@@ -173,6 +180,7 @@ SQL;
             ->selectRaw("COALESCE(orders.meta->>'date_completed_gmt', orders.meta->>'date_completed') as delivered_at")
             ->selectRaw("{$locationSql} as location")
             ->selectRaw('orders.total::numeric as total')
+            ->selectRaw('orders.created_at as ingested_at')
             ->selectRaw('orders.store_slug as vendor_name')
             ->selectRaw('orders.store_slug')
                 ->selectRaw('orders.status as raw_status')
@@ -198,6 +206,7 @@ SQL;
             ->selectRaw('NULL::text as delivered_at')
             ->selectRaw("{$locationSql} as location")
             ->selectRaw('total_amount::numeric as total')
+            ->selectRaw('created_at as ingested_at')
             ->selectRaw("COALESCE({$sellerNameSql}, user_name) as vendor_name")
             ->selectRaw('office_name as store_slug')
             ->selectRaw("COALESCE({$statusSql}, 'PEDIDO') as raw_status")

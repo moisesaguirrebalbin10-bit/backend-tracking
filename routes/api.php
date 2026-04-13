@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardOrdersController;
 use App\Http\Controllers\Api\Orders\OrderController;
 use App\Http\Controllers\Api\Orders\PublicOrderLookupController;
+use App\Http\Controllers\Api\Notifications\OrderActivityNotificationController;
 use App\Http\Controllers\Api\Users\UserController;
 use App\Http\Controllers\Api\Webhooks\WooCommerceWebhookController;
 use App\Http\Controllers\WooCommerceController;
@@ -61,6 +62,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/{source}/{id}', [DashboardOrdersController::class, 'show'])
                 ->whereIn('source', ['woo', 'bsale'])
                 ->whereNumber('id');
+        });
+
+        Route::prefix('notifications')->group(function (): void {
+            Route::get('/order-activities', [OrderActivityNotificationController::class, 'index']);
         });
 
         Route::get('/stores', [WooCommerceController::class, 'listStores']);

@@ -425,7 +425,7 @@ SQL;
     {
         $name = strtoupper($name);
 
-        return "(SELECT attr->>'value' FROM json_array_elements(COALESCE(payload->'attributes'->'items', '[]'::json)) AS attr WHERE UPPER(TRIM(COALESCE(attr->>'name', ''))) = '{$name}' LIMIT 1)";
+        return "(SELECT CASE WHEN COALESCE(attr->>'value', '') ~ '^[0-9]+$' THEN COALESCE(attr->'details'->0->>'name', attr->>'value') ELSE attr->>'value' END FROM json_array_elements(COALESCE(payload->'attributes'->'items', '[]'::json)) AS attr WHERE UPPER(TRIM(COALESCE(attr->>'name', ''))) = '{$name}' LIMIT 1)";
     }
 
     private function bsaleSellerNameSql(): string
@@ -460,6 +460,13 @@ SQL;
             }
 
             $value = trim((string) ($item['value'] ?? ''));
+
+            if ($value !== '' && is_numeric($value)) {
+                $detailName = trim((string) data_get($item, 'details.0.name', ''));
+                if ($detailName !== '') {
+                    return $detailName;
+                }
+            }
 
             return $value !== '' ? $value : null;
         }
